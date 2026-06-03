@@ -494,12 +494,17 @@ const _sb=supabase.createClient('https://ooizcqujhujfdwgdhsgy.supabase.co','sb_p
 let storage=[];
 let currentEntry={},selectedConcepto=null,currentDriver=null;
 
-async function save(){
-  await _sb.from('app_state').upsert({key:'gastos_infra',value:JSON.stringify(storage)});
+async function save(entry){
+  await _sb.from('gastos').upsert({
+    id:entry.id, nombre:entry.nombre, fecha:entry.fecha,
+    concepto:entry.concepto, concepto_label:entry.conceptoLabel,
+    concepto_desc:entry.conceptoDesc||'', monto:entry.monto,
+    foto:entry.foto||null, ts:entry.ts
+  });
 }
-_sb.from('app_state').select('value').eq('key','gastos_infra').single()
+_sb.from('gastos').select('*').order('fecha',{ascending:false})
   .then(({data})=>{
-    storage=JSON.parse(data?.value||'[]');
+    storage=(data||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:r.foto,ts:r.ts}));
     showScreen('screen-home');
   })
   .catch(()=>showScreen('screen-home'));
@@ -674,15 +679,20 @@ function showConfirmFoto(){
   if(currentEntry.foto){wrap.style.display='block';img.src=currentEntry.foto;}
   else{wrap.style.display='none';}
 }
-function saveEntry(){
+async function saveEntry(){
   if(_currentEditId){
     const idx=storage.findIndex(e=>e.id===_currentEditId);
-    if(idx>=0)storage[idx]={...storage[idx],concepto:currentEntry.concepto,conceptoLabel:currentEntry.conceptoLabel,conceptoDesc:currentEntry.conceptoDesc||'',monto:currentEntry.monto,foto:currentEntry.foto||null};
+    if(idx>=0){
+      storage[idx]={...storage[idx],concepto:currentEntry.concepto,conceptoLabel:currentEntry.conceptoLabel,conceptoDesc:currentEntry.conceptoDesc||'',monto:currentEntry.monto,foto:currentEntry.foto||null};
+      await save(storage[idx]);
+    }
     _currentEditId=null;
   } else {
-    storage.push({id:Date.now(),nombre:currentEntry.nombre,fecha:currentEntry.fecha,lugarManual:currentEntry.lugarManual||'',ubicacionTexto:currentEntry.ubicacionTexto||null,concepto:currentEntry.concepto,conceptoLabel:currentEntry.conceptoLabel,conceptoDesc:currentEntry.conceptoDesc||'',monto:currentEntry.monto,foto:currentEntry.foto||null,lat:currentEntry.lat,lng:currentEntry.lng,ts:new Date().toISOString()});
+    const entry={id:Date.now(),nombre:currentEntry.nombre,fecha:currentEntry.fecha,concepto:currentEntry.concepto,conceptoLabel:currentEntry.conceptoLabel,conceptoDesc:currentEntry.conceptoDesc||'',monto:currentEntry.monto,foto:currentEntry.foto||null,ts:new Date().toISOString()};
+    storage.push(entry);
+    await save(entry);
   }
-  save();updateDatalist();showScreen('screen-driver-success');
+  updateDatalist();showScreen('screen-driver-success');
 }
 function addAnother(){
   if(_fromCalendar&&_calendarDate){renderCalendar();showScreen('screen-driver-calendar');}
@@ -753,8 +763,9 @@ function openDeleteModal(idsStr,label,dia,monto){
   document.getElementById('delete-modal').classList.add('open');
 }
 function closeDeleteModal(){document.getElementById('delete-modal').classList.remove('open');_pendingDeleteIds=[];}
-function confirmDeleteEntry(){
-  storage=storage.filter(e=>!_pendingDeleteIds.includes(e.id));save();
+async function confirmDeleteEntry(){
+  storage=storage.filter(e=>!_pendingDeleteIds.includes(e.id));
+  await _sb.from('gastos').delete().in('id',_pendingDeleteIds);
   closeDeleteModal();
   if(_fromCalendar&&_calendarDate){renderDayDetail(_calendarDate);renderCalendar();}
   else{const nombre=document.getElementById('mis-gastos-titulo').textContent;renderMisGastos(nombre);}
