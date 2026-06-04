@@ -113,7 +113,7 @@ body { font-family:var(--font); font-size:16px; background:var(--color-backgroun
 .download-link { display:flex; align-items:center; gap:10px; padding:14px 16px; background:var(--accent-light); border:1.5px solid var(--accent-border); border-radius:14px; color:var(--accent-dark); font-size:15px; font-weight:500; text-decoration:none; margin-top:1rem; font-family:var(--font); }
 .cal-month-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem; }
 .cal-month-title { font-size:18px; font-weight:600; color:var(--color-text-primary); text-transform:capitalize; }
-.cal-grid { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
+.cal-grid { display:grid; grid-template-columns:repeat(7,1fr) 36px; gap:3px; }
 .cal-hdr { text-align:center; font-size:10px; font-weight:700; color:var(--color-text-secondary); padding:6px 0; text-transform:uppercase; letter-spacing:0.5px; }
 .cal-day { aspect-ratio:1; display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:10px; cursor:pointer; position:relative; transition:background 0.1s; min-height:44px; }
 .cal-day:active { transform:scale(0.94); }
@@ -556,15 +556,26 @@ function renderCalendar(){
   const todayStr=now.toISOString().split('T')[0];
   const title=now.toLocaleDateString('es-MX',{month:'long',year:'numeric'});
   document.getElementById('cal-month-title').textContent=title.charAt(0).toUpperCase()+title.slice(1);
-  const DAY=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'];
-  let html=DAY.map(d=>`<div class="cal-hdr">${d}</div>`).join('');
+  const DAY=['Lun','Mar','Mié','Jue','Vie','Sáb','Dom',''];
+  let html=DAY.map(d=>d?`<div class="cal-hdr">${d}</div>`:`<div class="cal-hdr" style="font-size:9px;color:var(--accent);">SEM</div>`).join('');
   const d=new Date(start);
   while(d<=end){
-    const ds=d.toISOString().split('T')[0];
-    const count=storage.filter(e=>e.nombre===currentEntry.nombre&&e.fecha===ds).length;
-    const cls=['cal-day',d.getMonth()!==m?'other-month':'',ds===todayStr?'today':'',count>0?'has-entries':''].filter(Boolean).join(' ');
-    html+=`<div class="${cls}" onclick="openDayDetail('${ds}')"><span class="cal-day-num">${d.getDate()}</span>${count>0?`<span class="cal-day-badge">${count}</span>`:''}</div>`;
-    d.setDate(d.getDate()+1);
+    const weekDays=[];
+    for(let i=0;i<7;i++){
+      const dd=new Date(d);dd.setDate(d.getDate()+i);
+      weekDays.push(dd.toISOString().split('T')[0]);
+    }
+    const weekTotal=weekDays.reduce((s,ds)=>{
+      return s+storage.filter(e=>e.nombre===currentEntry.nombre&&e.fecha===ds).reduce((a,e)=>a+e.monto,0);
+    },0);
+    for(let i=0;i<7;i++){
+      const ds=d.toISOString().split('T')[0];
+      const count=storage.filter(e=>e.nombre===currentEntry.nombre&&e.fecha===ds).length;
+      const cls=['cal-day',d.getMonth()!==m?'other-month':'',ds===todayStr?'today':'',count>0?'has-entries':''].filter(Boolean).join(' ');
+      html+=`<div class="${cls}" onclick="openDayDetail('${ds}')"><span class="cal-day-num">${d.getDate()}</span>${count>0?`<span class="cal-day-badge">${count}</span>`:''}</div>`;
+      d.setDate(d.getDate()+1);
+    }
+    html+=`<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--accent-dark);background:var(--accent-light);border-radius:8px;padding:2px 1px;min-height:44px;">${weekTotal>0?'$'+weekTotal.toFixed(0):'-'}</div>`;
   }
   document.getElementById('cal-grid').innerHTML=html;
 }
@@ -665,17 +676,40 @@ function goToStep4(){
   document.getElementById('confirm-summary').innerHTML=`<div class="card"><div class="summary-row"><span class="label">Chofer</span><span class="value">${currentEntry.nombre}</span></div><div class="summary-row"><span class="label">Fecha</span><span class="value">${fechaStr}</span></div><div class="summary-row"><span class="label">Concepto</span><span class="value">${c.label}${desc?` — ${desc}`:''}</span></div><div class="summary-row" style="border:none;padding-top:16px;"><span class="label" style="font-size:15px;">Total</span><span style="font-size:28px;font-weight:600;color:var(--accent);">$${monto.toFixed(2)}</span></div></div>`;
   showConfirmFoto();showScreen('screen-driver-confirm');
 }
-function previewFoto(input){
+async function previewFoto(input){
   const file=input.files[0];if(!file)return;
-  const reader=new FileReader();
-  reader.onload=e=>{
-    currentEntry.foto=e.target.result;
-    document.getElementById('foto-preview').src=e.target.result;
+  document.getElementById('foto-preview').style.display='none';
+  document.getElementById('foto-status').style.display='flex';
+  document.getElementById('foto-texto').textContent='Procesando...';
+  // comprimir con canvas
+  const img=new Image();
+  const blobUrl=URL.createObjectURL(file);
+  img.onload=async()=>{
+    const MAX=800;
+    let w=img.width,h=img.height;
+    if(w>h&&w>MAX){h=Math.round(h*MAX/w);w=MAX;}
+    else if(h>MAX){w=Math.round(w*MAX/h);h=MAX;}
+    const canvas=document.createElement('canvas');
+    canvas.width=w;canvas.height=h;
+    canvas.getContext('2d').drawImage(img,0,0,w,h);
+    URL.revokeObjectURL(blobUrl);
+    document.getElementById('foto-preview').src=canvas.toDataURL('image/jpeg',0.7);
     document.getElementById('foto-preview').style.display='block';
-    document.getElementById('foto-status').style.display='flex';
-    document.getElementById('foto-texto').textContent=file.name||'Foto adjunta';
+    // convertir canvas a blob para subir
+    canvas.toBlob(async blob=>{
+      document.getElementById('foto-texto').textContent='Subiendo foto...';
+      const path=`${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+      const {error}=await _sb.storage.from('fotos-gastos').upload(path,blob,{contentType:'image/jpeg'});
+      if(error){
+        document.getElementById('foto-texto').textContent='Error al subir foto';
+        currentEntry.foto=null;return;
+      }
+      const {data:{publicUrl}}=_sb.storage.from('fotos-gastos').getPublicUrl(path);
+      currentEntry.foto=publicUrl;
+      document.getElementById('foto-texto').textContent=file.name||'Foto adjunta';
+    },'image/jpeg',0.7);
   };
-  reader.readAsDataURL(file);
+  img.src=blobUrl;
 }
 function resetFoto(){
   currentEntry.foto=null;
@@ -964,8 +998,19 @@ async function exportZip(){
   let xlsxB64=XLSX.write(wb,{bookType:'xlsx',type:'base64'});
   xlsxB64=await patchXlsxCheckboxes(xlsxB64);
   zip.file(`gastos_${fecha}.xlsx`,xlsxB64,{base64:true});
+  // Fotos
   const fotos=zip.folder('fotos');
-  sorted.forEach((e,i)=>{const foto=fotoMap[e.id];if(foto){fotos.file(fotoFilename(e,i+1),foto.split(',')[1],{base64:true});}});
+  const fotoPromises=sorted.map(async(e,i)=>{
+    const url=fotoMap[e.id]||e.foto;
+    if(!url||!url.startsWith('http'))return;
+    try{
+      const res=await fetch(url);
+      const blob=await res.blob();
+      const arr=await blob.arrayBuffer();
+      fotos.file(fotoFilename(e,i+1),arr);
+    }catch(err){console.warn('foto no disponible:',e.id);}
+  });
+  await Promise.all(fotoPromises);
   const b64=await zip.generateAsync({type:'base64'});
   const name=`reporte_${fecha}.zip`;
   document.getElementById('export-link-container').innerHTML=`<a class="download-link" href="data:application/zip;base64,${b64}" download="${name}"><i class="ti ti-download"></i> Descargar ${name}</a>`;
