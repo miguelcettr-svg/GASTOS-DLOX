@@ -533,11 +533,17 @@ function checkNombre(){
 }
 function setChoferBtns(ok){const b=document.getElementById('btn-continuar-nombre');b.disabled=!ok;b.style.opacity=ok?'1':'0.4';}
 let _fromCalendar=false,_calendarDate='',_entryOptionsId=null,_currentEditId=null;
+function getFechaMin() {
+  const d = new Date();
+  d.setDate(1);
+  d.setDate(d.getDate() - 7);
+  return d.toISOString().split('T')[0];
+}
 async function goToCalendar(){
   currentEntry.nombre=document.getElementById('input-nombre').value.trim();
   const btn=document.getElementById('btn-continuar-nombre');
   btn.disabled=true;btn.textContent='Cargando...';
-  const {data} = await _sb.from('gastos').select('id,nombre,fecha,concepto,concepto_label,concepto_desc,monto,ts').eq('nombre',currentEntry.nombre).order('fecha',{ascending:false});
+  const {data} = await _sb.from('gastos').select('id,nombre,fecha,concepto,concepto_label,concepto_desc,monto,ts').eq('nombre',currentEntry.nombre).gte('fecha',getFechaMin()).order('fecha',{ascending:false});
   storage=(data||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:null,ts:r.ts}));
   btn.disabled=false;btn.textContent='Continuar';
   document.getElementById('cal-nombre-label').textContent=currentEntry.nombre;
@@ -698,7 +704,7 @@ async function previewFoto(input){
     canvas.toBlob(async blob=>{
       document.getElementById('foto-texto').textContent='Subiendo foto...';
       const path=`${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
-      const {error}=await _sb.storage.from('fotos-gastos').upload(path,blob,{contentType:'image/jpeg'});
+      const {error}=await _sb.storage.from('fotos-gastos').upload(path,blob,{contentType:'image/jpeg',cacheControl:'2592000'});
       if(error){
         document.getElementById('foto-texto').textContent='Error al subir foto';
         currentEntry.foto=null;return;
@@ -739,8 +745,6 @@ async function saveEntry(){
       await save(entry);
       storage.push(entry);
     }
-    const {data:fresh} = await _sb.from('gastos').select('id,nombre,fecha,concepto,concepto_label,concepto_desc,monto,ts').eq('nombre',currentEntry.nombre).order('fecha',{ascending:false});
-    storage=(fresh||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:null,ts:r.ts}));
     updateDatalist();
     showScreen('screen-driver-success');;
   } catch(err){
