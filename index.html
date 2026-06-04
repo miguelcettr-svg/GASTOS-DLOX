@@ -513,8 +513,7 @@ async function doLogin(){
     const btn=document.querySelector('#screen-admin-login .btn-primary');
     btn.disabled=true;btn.textContent='Cargando...';
     const {data}=await _sb.from('gastos').select('id,nombre,fecha,concepto,concepto_label,concepto_desc,monto,ts').order('fecha',{ascending:false});
-    storage=(data||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:r.foto,ts:r.ts}));
-    btn.disabled=false;btn.innerHTML='<i class="ti ti-lock-open"></i> Entrar';
+    storage=(data||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:null,ts:r.ts}));
     showScreen('screen-admin');
     buildAdminChecks();
     renderAdminDrivers();
@@ -538,8 +537,8 @@ async function goToCalendar(){
   currentEntry.nombre=document.getElementById('input-nombre').value.trim();
   const btn=document.getElementById('btn-continuar-nombre');
   btn.disabled=true;btn.textContent='Cargando...';
-  const {data} = await _sb.from('gastos').select('*').eq('nombre',currentEntry.nombre).order('fecha',{ascending:false});
-  storage=(data||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:r.foto,ts:r.ts}));
+  const {data} = await _sb.from('gastos').select('id,nombre,fecha,concepto,concepto_label,concepto_desc,monto,ts').eq('nombre',currentEntry.nombre).order('fecha',{ascending:false});
+  storage=(data||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:null,ts:r.ts}));
   btn.disabled=false;btn.textContent='Continuar';
   document.getElementById('cal-nombre-label').textContent=currentEntry.nombre;
   renderCalendar();
@@ -740,8 +739,8 @@ async function saveEntry(){
       await save(entry);
       storage.push(entry);
     }
-    const {data:fresh} = await _sb.from('gastos').select('*').eq('nombre',currentEntry.nombre).order('fecha',{ascending:false});
-    storage=(fresh||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:r.foto,ts:r.ts}));
+    const {data:fresh} = await _sb.from('gastos').select('id,nombre,fecha,concepto,concepto_label,concepto_desc,monto,ts').eq('nombre',currentEntry.nombre).order('fecha',{ascending:false});
+    storage=(fresh||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:null,ts:r.ts}));
     updateDatalist();
     showScreen('screen-driver-success');;
   } catch(err){
