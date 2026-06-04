@@ -512,7 +512,7 @@ async function doLogin(){
     document.getElementById('login-pass').value='';
     const btn=document.querySelector('#screen-admin-login .btn-primary');
     btn.disabled=true;btn.textContent='Cargando...';
-    const {data}=await _sb.from('gastos').select('*').order('fecha',{ascending:false});
+    const {data}=await _sb.from('gastos').select('id,nombre,fecha,concepto,concepto_label,concepto_desc,monto,ts').order('fecha',{ascending:false});
     storage=(data||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:r.foto,ts:r.ts}));
     btn.disabled=false;btn.innerHTML='<i class="ti ti-lock-open"></i> Entrar';
     showScreen('screen-admin');
@@ -948,10 +948,15 @@ async function exportZip(){
   const entries=getAdminFiltered();
   if(!entries.length){alert('No hay registros con ese filtro');return;}
   const btn=document.querySelector('[onclick="exportZip()"]');
-  if(btn){btn.textContent='Generando ZIP...';btn.disabled=true;}
+  if(btn){btn.textContent='Cargando fotos...';btn.disabled=true;}
+  // Cargar fotos on-demand solo al exportar
+  const ids=entries.map(e=>e.id);
+  const {data:conFotos}=await _sb.from('gastos').select('id,foto').in('id',ids);
+  const fotoMap={};
+  (conFotos||[]).forEach(r=>{if(r.foto)fotoMap[r.id]=r.foto;});
+  if(btn)btn.textContent='Generando ZIP...';
   const sorted=[...entries].sort((a,b)=>a.nombre.localeCompare(b.nombre)||a.fecha.localeCompare(b.fecha));
   const zip=new JSZip();const fecha=new Date().toISOString().slice(0,10);
-  // Excel con estilos + checkboxes reales
   let ws=XLSX.utils.json_to_sheet(buildRows(sorted,true));
   ws['!cols']=[{wch:10},{wch:20},{wch:12},{wch:18},{wch:22},{wch:10},{wch:20},{wch:20}];
   ws=applyTableStyles(ws,0);
@@ -959,9 +964,8 @@ async function exportZip(){
   let xlsxB64=XLSX.write(wb,{bookType:'xlsx',type:'base64'});
   xlsxB64=await patchXlsxCheckboxes(xlsxB64);
   zip.file(`gastos_${fecha}.xlsx`,xlsxB64,{base64:true});
-  // Fotos
   const fotos=zip.folder('fotos');
-  sorted.forEach((e,i)=>{if(e.foto){fotos.file(fotoFilename(e,i+1),e.foto.split(',')[1],{base64:true});}});
+  sorted.forEach((e,i)=>{const foto=fotoMap[e.id];if(foto){fotos.file(fotoFilename(e,i+1),foto.split(',')[1],{base64:true});}});
   const b64=await zip.generateAsync({type:'base64'});
   const name=`reporte_${fecha}.zip`;
   document.getElementById('export-link-container').innerHTML=`<a class="download-link" href="data:application/zip;base64,${b64}" download="${name}"><i class="ti ti-download"></i> Descargar ${name}</a>`;
