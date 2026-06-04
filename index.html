@@ -503,16 +503,13 @@ async function save(entry){
   });
   if(error) throw error;
 }
-_sb.from('gastos').select('*').order('fecha',{ascending:false})
-  .then(({data})=>{
-    storage=(data||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:r.foto,ts:r.ts}));
-    showScreen('screen-home');
-  })
-  .catch(()=>showScreen('screen-home'));
+showScreen('screen-home');
 function showScreen(id){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');window.scrollTo(0,0);if(id==='screen-admin'){buildAdminChecks();renderAdminDrivers();}}
-function doLogin(){
+async function doLogin(){
   const u=document.getElementById('login-user').value.trim(),p=document.getElementById('login-pass').value,err=document.getElementById('login-error');
-  if(ADMINS.some(a=>a.user===u&&a.pass===p)){err.style.display='none';document.getElementById('login-user').value='';document.getElementById('login-pass').value='';showScreen('screen-admin');}
+  if(ADMINS.some(a=>a.user===u&&a.pass===p)){err.style.display='none';document.getElementById('login-user').value='';document.getElementById('login-pass').value='';const {data} = await _sb.from('gastos').select('*').order('fecha',{ascending:false});
+storage=(data||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:r.foto,ts:r.ts}));
+showScreen('screen-admin');}
   else err.style.display='block';
 }
 function logout(){setRole('driver');showScreen('screen-home');}
@@ -529,9 +526,11 @@ function checkNombre(){
 }
 function setChoferBtns(ok){const b=document.getElementById('btn-continuar-nombre');b.disabled=!ok;b.style.opacity=ok?'1':'0.4';}
 let _fromCalendar=false,_calendarDate='',_entryOptionsId=null,_currentEditId=null;
-function goToCalendar(){
+async function goToCalendar(){
   currentEntry.nombre=document.getElementById('input-nombre').value.trim();
   document.getElementById('cal-nombre-label').textContent=currentEntry.nombre;
+  const {data} = await _sb.from('gastos').select('*').eq('nombre',currentEntry.nombre).order('fecha',{ascending:false});
+  storage=(data||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:r.foto,ts:r.ts}));
   renderCalendar();
   showScreen('screen-driver-calendar');
 }
@@ -696,9 +695,10 @@ async function saveEntry(){
       await save(entry);
       storage.push(entry);
     }
-    storage=[];
+    const {data:fresh} = await _sb.from('gastos').select('*').eq('nombre',currentEntry.nombre).order('fecha',{ascending:false});
+    storage=(fresh||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:r.foto,ts:r.ts}));
     updateDatalist();
-    showScreen('screen-driver-success');
+    showScreen('screen-driver-success');;
   } catch(err){
     btn.disabled=false;
     btn.textContent='Guardar gasto';
