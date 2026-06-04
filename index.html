@@ -495,12 +495,13 @@ let storage=[];
 let currentEntry={},selectedConcepto=null,currentDriver=null;
 
 async function save(entry){
-  await _sb.from('gastos').upsert({
+  const {error} = await _sb.from('gastos').upsert({
     id:entry.id, nombre:entry.nombre, fecha:entry.fecha,
     concepto:entry.concepto, concepto_label:entry.conceptoLabel,
     concepto_desc:entry.conceptoDesc||'', monto:entry.monto,
     foto:entry.foto||null, ts:entry.ts
   });
+  if(error) throw error;
 }
 _sb.from('gastos').select('*').order('fecha',{ascending:false})
   .then(({data})=>{
@@ -680,19 +681,29 @@ function showConfirmFoto(){
   else{wrap.style.display='none';}
 }
 async function saveEntry(){
-  if(_currentEditId){
-    const idx=storage.findIndex(e=>e.id===_currentEditId);
-    if(idx>=0){
-      storage[idx]={...storage[idx],concepto:currentEntry.concepto,conceptoLabel:currentEntry.conceptoLabel,conceptoDesc:currentEntry.conceptoDesc||'',monto:currentEntry.monto,foto:currentEntry.foto||null};
-      await save(storage[idx]);
+  const btn=document.querySelector('#screen-driver-confirm .btn-primary');
+  btn.disabled=true;btn.textContent='Guardando...';
+  try{
+    if(_currentEditId){
+      const idx=storage.findIndex(e=>e.id===_currentEditId);
+      if(idx>=0){
+        storage[idx]={...storage[idx],concepto:currentEntry.concepto,conceptoLabel:currentEntry.conceptoLabel,conceptoDesc:currentEntry.conceptoDesc||'',monto:currentEntry.monto,foto:currentEntry.foto||null};
+        await save(storage[idx]);
+      }
+      _currentEditId=null;
+    } else {
+      const entry={id:Date.now(),nombre:currentEntry.nombre,fecha:currentEntry.fecha,concepto:currentEntry.concepto,conceptoLabel:currentEntry.conceptoLabel,conceptoDesc:currentEntry.conceptoDesc||'',monto:currentEntry.monto,foto:currentEntry.foto||null,ts:new Date().toISOString()};
+      await save(entry);
+      storage.push(entry);
     }
-    _currentEditId=null;
-  } else {
-    const entry={id:Date.now(),nombre:currentEntry.nombre,fecha:currentEntry.fecha,concepto:currentEntry.concepto,conceptoLabel:currentEntry.conceptoLabel,conceptoDesc:currentEntry.conceptoDesc||'',monto:currentEntry.monto,foto:currentEntry.foto||null,ts:new Date().toISOString()};
-    storage.push(entry);
-    await save(entry);
+    storage=[];
+    updateDatalist();
+    showScreen('screen-driver-success');
+  } catch(err){
+    btn.disabled=false;
+    btn.textContent='Guardar gasto';
+    alert('Error al guardar. Verifica tu conexión e intenta de nuevo. Recomendamos apuntar en una hoja este gasto y compartirlo con alguno de los ingenieros');
   }
-  updateDatalist();showScreen('screen-driver-success');
 }
 function addAnother(){
   if(_fromCalendar&&_calendarDate){renderCalendar();showScreen('screen-driver-calendar');}
