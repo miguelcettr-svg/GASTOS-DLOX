@@ -895,10 +895,10 @@ function fotoFilename(entry,idx){
   const code=normStr((parts[0]?parts[0][0]:'')+( parts[1]||''));
   return `${code}_${idx}.jpg`;
 }
-function buildRows(entries,withFoto){
+function buildRows(entries,withFoto,fotoMap={}){
   return entries.map((e,i)=>{
     const row={'Revisado':false,'Chofer':e.nombre,'Fecha':new Date(e.fecha+'T12:00:00').toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric'}),'Concepto':e.conceptoLabel,'Descripción':e.conceptoDesc||'','Monto ($)':e.monto,'Registrado':new Date(e.ts).toLocaleString('es-MX')};
-    if(withFoto)row['Foto']=e.foto?fotoFilename(e,i+1):'';
+    if(withFoto){const hasFoto=fotoMap[e.id]||(e.foto&&e.foto.startsWith('http'));row['Foto']=hasFoto?fotoFilename(e,i+1):'';}
     return row;
   });
 }
@@ -994,7 +994,7 @@ async function exportZip(){
   if(btn)btn.textContent='Generando ZIP...';
   const sorted=[...entries].sort((a,b)=>a.nombre.localeCompare(b.nombre)||a.fecha.localeCompare(b.fecha));
   const zip=new JSZip();const fecha=new Date().toISOString().slice(0,10);
-  let ws=XLSX.utils.json_to_sheet(buildRows(sorted,true));
+  let ws=XLSX.utils.json_to_sheet(buildRows(sorted,true,fotoMap));
   ws['!cols']=[{wch:10},{wch:20},{wch:12},{wch:18},{wch:22},{wch:10},{wch:20},{wch:20}];
   ws=applyTableStyles(ws,0);
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Gastos');
