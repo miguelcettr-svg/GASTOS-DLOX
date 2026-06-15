@@ -74,6 +74,15 @@ body { font-family:var(--font); font-size:16px; background:var(--color-backgroun
 .loc-badge i { font-size:22px; flex-shrink:0; color:var(--accent); }
 .loc-badge.captured { background:var(--accent-light); color:var(--accent-dark); border-style:solid; border-color:var(--accent-border); }
 .loc-badge.loading { opacity:0.6; cursor:default; }
+.foto-upload-bar { width:100%;height:4px;background:var(--color-border-secondary);border-radius:2px;overflow:hidden;margin-top:8px; }
+.foto-upload-bar-fill { height:100%;background:var(--accent);border-radius:2px;transition:width 0.3s ease; }
+@keyframes foto-bar-indeterminate { 0%{transform:translateX(-100%)} 100%{transform:translateX(400%)} }
+.foto-upload-bar-fill.indeterminate { width:25%!important;animation:foto-bar-indeterminate 1.2s ease infinite; }
+.foto-estado { display:flex;align-items:center;gap:8px;margin-top:8px;font-size:13px;font-weight:500; }
+.foto-estado.procesando { color:var(--color-text-secondary); }
+.foto-estado.subiendo { color:var(--accent); }
+.foto-estado.lista { color:#27AE60; }
+.foto-estado.error { color:#C0392B; }
 
 .summary-row { display:flex; justify-content:space-between; align-items:center; padding:13px 0; border-bottom:0.5px solid var(--color-border-tertiary); }
 .summary-row:last-child { border-bottom:none; }
@@ -343,12 +352,17 @@ body { font-family:var(--font); font-size:16px; background:var(--color-backgroun
           <input type="file" accept="image/*" style="display:none;" onchange="previewFoto(this)">
         </label>
       </div>
-      <div id="foto-status" style="display:none;align-items:center;gap:8px;margin-top:8px;font-size:13px;color:var(--accent);font-weight:500;">
-        <i class="ti ti-circle-check"></i><span id="foto-texto">Foto adjunta</span>
-        <button onclick="resetFoto()" style="margin-left:auto;background:none;border:none;cursor:pointer;color:#C0392B;font-size:18px;padding:0;"><i class="ti ti-x"></i></button>
+      <div id="foto-status" style="display:none;">
+        <div id="foto-estado" class="foto-estado">
+          <i id="foto-icono" class="ti ti-loader"></i>
+          <span id="foto-texto">Procesando...</span>
+          <button id="foto-reset-btn" onclick="resetFoto()" style="display:none;margin-left:auto;background:none;border:none;cursor:pointer;color:#C0392B;font-size:18px;padding:0;"><i class="ti ti-x"></i></button>
+        </div>
+        <div id="foto-upload-bar" class="foto-upload-bar" style="display:none;">
+          <div id="foto-upload-bar-fill" class="foto-upload-bar-fill indeterminate"></div>
+        </div>
       </div>
-      <img id="foto-preview" style="display:none;width:100%;border-radius:10px;margin-top:8px;max-height:180px;object-fit:cover;">
-    </div>
+      <img id="foto-preview" style="display:none;width:100%;border-radius:10px;margin-top:8px;max-height:220px;object-fit:cover;">
   </div>
   <button class="btn-primary" onclick="goToStep4()">Continuar</button>
 </div>
@@ -494,12 +508,16 @@ let storage=[];
 let currentEntry={},selectedConcepto=null,currentDriver=null;
 
 async function save(entry){
-  const {error} = await _sb.from('gastos').upsert({
+  const upsert=_sb.from('gastos').upsert({
     id:entry.id, nombre:entry.nombre, fecha:entry.fecha,
     concepto:entry.concepto, concepto_label:entry.conceptoLabel,
     concepto_desc:entry.conceptoDesc||'', monto:entry.monto,
     foto:entry.foto||null, ts:entry.ts
   });
+  const timeout=new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),15000));
+  const {error}=await Promise.race([upsert,timeout]);
+  const timeout=new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),15000));
+  const {error}=await Promise.race([upsert,timeout]);
   if(error) throw error;
 }
 showScreen('screen-home');
@@ -532,7 +550,7 @@ function checkNombre(){
   setChoferBtns(ok);
 }
 function setChoferBtns(ok){const b=document.getElementById('btn-continuar-nombre');b.disabled=!ok;b.style.opacity=ok?'1':'0.4';}
-let _fromCalendar=false,_calendarDate='',_entryOptionsId=null,_currentEditId=null;
+let _fromCalendar=false,_calendarDate='',_entryOptionsId=null,_currentEditId=null,_fotoUploadPromise=null;
 function getFechaMin() {
   const d = new Date();
   d.setDate(1);
@@ -668,56 +686,85 @@ function goToStep3(){
   showScreen('screen-driver-concepto');
 }
 function selectConcepto(id){selectedConcepto=id;document.querySelectorAll('.concepto-btn').forEach(b=>b.classList.toggle('selected',b.dataset.id===id));}
-function goToStep4(){
+async function goToStep4(){
   if(!selectedConcepto){alert('Selecciona un concepto');return;}
   const desc=document.getElementById('input-concepto-desc').value.trim();
   if(!desc){alert('Escribe una descripción');return;}
   const monto=parseFloat(document.getElementById('input-monto').value);
   if(!monto||monto<=0){alert('Ingresa un monto válido');return;}
-  if(['Talachas','Lavado','Autobus','Puentes'].includes(selectedConcepto)&&!currentEntry.foto){alert('Este concepto requiere foto del comprobante');return;}
+  if(['Talachas','Lavado','Autobus','Puentes'].includes(selectedConcepto)&&!currentEntry.foto&&!_fotoUploadPromise){alert('Este concepto requiere foto del comprobante');return;}
+  const btn=document.querySelector('#screen-driver-concepto .btn-primary');
+  if(_fotoUploadPromise){
+    btn.disabled=true;btn.textContent='Esperando foto...';
+    try{await _fotoUploadPromise;}
+    catch(e){
+      btn.disabled=false;btn.textContent='Continuar';
+      alert('Error al subir la foto. Intenta de nuevo o continúa sin foto.');return;
+    }
+    btn.disabled=false;btn.textContent='Continuar';
+  }
   const c=CONCEPTOS.find(c=>c.id===selectedConcepto);
   currentEntry.concepto=selectedConcepto;currentEntry.conceptoLabel=c.label;currentEntry.conceptoDesc=desc;currentEntry.monto=monto;
   const fechaStr=new Date(currentEntry.fecha+'T12:00:00').toLocaleDateString('es-MX',{weekday:'long',year:'numeric',month:'long',day:'numeric'});
   document.getElementById('confirm-summary').innerHTML=`<div class="card"><div class="summary-row"><span class="label">Chofer</span><span class="value">${currentEntry.nombre}</span></div><div class="summary-row"><span class="label">Fecha</span><span class="value">${fechaStr}</span></div><div class="summary-row"><span class="label">Concepto</span><span class="value">${c.label}${desc?` — ${desc}`:''}</span></div><div class="summary-row" style="border:none;padding-top:16px;"><span class="label" style="font-size:15px;">Total</span><span style="font-size:28px;font-weight:600;color:var(--accent);">$${monto.toFixed(2)}</span></div></div>`;
   showConfirmFoto();showScreen('screen-driver-confirm');
 }
-async function previewFoto(input){
+function _setFotoEstado(estado,texto){
+  const el=document.getElementById('foto-estado');
+  const icono=document.getElementById('foto-icono');
+  const bar=document.getElementById('foto-upload-bar');
+  const resetBtn=document.getElementById('foto-reset-btn');
+  el.className='foto-estado '+estado;
+  document.getElementById('foto-texto').textContent=texto;
+  if(estado==='procesando'){icono.className='ti ti-loader';bar.style.display='none';resetBtn.style.display='none';}
+  else if(estado==='subiendo'){icono.className='ti ti-cloud-upload';bar.style.display='block';resetBtn.style.display='none';}
+  else if(estado==='lista'){icono.className='ti ti-circle-check';bar.style.display='none';resetBtn.style.display='block';}
+  else if(estado==='error'){icono.className='ti ti-alert-circle';bar.style.display='none';resetBtn.style.display='block';}
+}
+function previewFoto(input){
   const file=input.files[0];if(!file)return;
   document.getElementById('foto-preview').style.display='none';
-  document.getElementById('foto-status').style.display='flex';
-  document.getElementById('foto-texto').textContent='Procesando...';
-  // comprimir con canvas
-  const img=new Image();
-  const blobUrl=URL.createObjectURL(file);
-  img.onload=async()=>{
-    const MAX=800;
-    let w=img.width,h=img.height;
-    if(w>h&&w>MAX){h=Math.round(h*MAX/w);w=MAX;}
-    else if(h>MAX){w=Math.round(w*MAX/h);h=MAX;}
-    const canvas=document.createElement('canvas');
-    canvas.width=w;canvas.height=h;
-    canvas.getContext('2d').drawImage(img,0,0,w,h);
-    URL.revokeObjectURL(blobUrl);
-    document.getElementById('foto-preview').src=canvas.toDataURL('image/jpeg',0.7);
-    document.getElementById('foto-preview').style.display='block';
-    // convertir canvas a blob para subir
-    canvas.toBlob(async blob=>{
-      document.getElementById('foto-texto').textContent='Subiendo foto...';
-      const path=`${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
-      const {error}=await _sb.storage.from('fotos-gastos').upload(path,blob,{contentType:'image/jpeg',cacheControl:'2592000'});
-      if(error){
-        document.getElementById('foto-texto').textContent='Error al subir foto';
-        currentEntry.foto=null;return;
-      }
-      const {data:{publicUrl}}=_sb.storage.from('fotos-gastos').getPublicUrl(path);
-      currentEntry.foto=publicUrl;
-      document.getElementById('foto-texto').textContent=file.name||'Foto adjunta';
-    },'image/jpeg',0.7);
-  };
-  img.src=blobUrl;
+  document.getElementById('foto-status').style.display='block';
+  _setFotoEstado('procesando','Procesando...');
+  currentEntry.foto=null;
+  _fotoUploadPromise=new Promise((resolve,reject)=>{
+    const img=new Image();
+    const blobUrl=URL.createObjectURL(file);
+    img.onload=()=>{
+      const MAX=800;
+      let w=img.width,h=img.height;
+      if(w>h&&w>MAX){h=Math.round(h*MAX/w);w=MAX;}
+      else if(h>MAX){w=Math.round(w*MAX/h);h=MAX;}
+      const canvas=document.createElement('canvas');
+      canvas.width=w;canvas.height=h;
+      canvas.getContext('2d').drawImage(img,0,0,w,h);
+      URL.revokeObjectURL(blobUrl);
+      document.getElementById('foto-preview').src=canvas.toDataURL('image/jpeg',0.7);
+      document.getElementById('foto-preview').style.display='block';
+      _setFotoEstado('subiendo','Subiendo foto...');
+      canvas.toBlob(async blob=>{
+        try{
+          const path=`${Date.now()}_${Math.random().toString(36).slice(2)}.jpg`;
+          const {error}=await _sb.storage.from('fotos-gastos').upload(path,blob,{contentType:'image/jpeg',cacheControl:'2592000'});
+          if(error)throw error;
+          const {data:{publicUrl}}=_sb.storage.from('fotos-gastos').getPublicUrl(path);
+          currentEntry.foto=publicUrl;
+          _setFotoEstado('lista',file.name||'Foto adjunta');
+          resolve(publicUrl);
+        }catch(e){
+          currentEntry.foto=null;
+          _setFotoEstado('error','Error al subir foto');
+          reject(e);
+        }
+      },'image/jpeg',0.7);
+    };
+    img.onerror=()=>{URL.revokeObjectURL(blobUrl);_setFotoEstado('error','Error al leer imagen');reject(new Error('img load error'));};
+    img.src=blobUrl;
+  });
 }
 function resetFoto(){
   currentEntry.foto=null;
+  _fotoUploadPromise=null;
   document.querySelectorAll('#screen-driver-concepto input[type=file]').forEach(i=>i.value='');
   document.getElementById('foto-preview').style.display='none';
   document.getElementById('foto-preview').src='';
@@ -746,6 +793,7 @@ async function saveEntry(){
       storage.push(entry);
     }
     updateDatalist();
+    _fotoUploadPromise=null;
     showScreen('screen-driver-success');;
   } catch(err){
     btn.disabled=false;
