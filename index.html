@@ -14,22 +14,6 @@
   --accent:#F47920; --accent-dark:#C2570A; --accent-light:#FFF7ED; --accent-border:#FDBA74;
   --font:'Oxanium',sans-serif;
 }
-* { box-sizing:border-<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
-<link href="https://fonts.googleapis.com/css2?family=Oxanium:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
-</head>
-<body>
-<style>
-:root {
-  --orange:#F47920; --orange-dark:#C2570A; --orange-light:#FFF7ED; --orange-border:#FDBA74;
-  --navy:#1C3F6E; --navy-light:#EFF6FF; --navy-border:#BFDBFE; --navy-dark:#1C3F6E;
-  --accent:#F47920; --accent-dark:#C2570A; --accent-light:#FFF7ED; --accent-border:#FDBA74;
-  --font:'Oxanium',sans-serif;
-}
 * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
 body { font-family:var(--font); font-size:16px; background:var(--color-background-tertiary); }
 .app { max-width:480px; margin:0 auto; padding:1.25rem; }
@@ -379,6 +363,7 @@ body { font-family:var(--font); font-size:16px; background:var(--color-backgroun
         </div>
       </div>
       <img id="foto-preview" style="display:none;width:100%;border-radius:10px;margin-top:8px;max-height:220px;object-fit:cover;">
+    </div>
   </div>
   <button class="btn-primary" onclick="goToStep4()">Continuar</button>
 </div>
@@ -524,14 +509,12 @@ let storage=[];
 let currentEntry={},selectedConcepto=null,currentDriver=null;
 
 async function save(entry){
-  const upsert=new Promise(resolve=>_sb.from('gastos').upsert({
+  const {error} = await _sb.from('gastos').upsert({
     id:entry.id, nombre:entry.nombre, fecha:entry.fecha,
     concepto:entry.concepto, concepto_label:entry.conceptoLabel,
     concepto_desc:entry.conceptoDesc||'', monto:entry.monto,
     foto:entry.foto||null, ts:entry.ts
-  }).then(resolve));
-  const timeout=new Promise((_,reject)=>setTimeout(()=>reject(new Error('timeout')),15000));
-  const {error}=await Promise.race([upsert,timeout]);
+  });
   if(error) throw error;
 }
 showScreen('screen-home');
@@ -711,10 +694,7 @@ async function goToStep4(){
   if(_fotoUploadPromise){
     btn.disabled=true;btn.textContent='Esperando foto...';
     try{await _fotoUploadPromise;}
-    catch(e){
-      btn.disabled=false;btn.textContent='Continuar';
-      alert('Error al subir la foto. Intenta de nuevo o continúa sin foto.');return;
-    }
+    catch(e){btn.disabled=false;btn.textContent='Continuar';alert('Error al subir la foto. Intenta de nuevo o continúa sin foto.');return;}
     btn.disabled=false;btn.textContent='Continuar';
   }
   const c=CONCEPTOS.find(c=>c.id===selectedConcepto);
