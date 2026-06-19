@@ -948,7 +948,7 @@ function borrarCelda(){}
 function buildAdminChecks(){
   const nombres=[...new Set(storage.map(e=>e.nombre))].sort();
   const checks=document.getElementById('admin-chofer-checks');
-  checks.innerHTML=nombres.map(n=>`<label class="admin-check-label"><input type="checkbox" value="${n}" checked onchange="applyAdminFilter()"> ${n}</label>`).join('');
+  checks.innerHTML=nombres.map(n=>`<label class="admin-check-label"><input type="checkbox" value="${n}" onchange="applyAdminFilter()"> ${n}</label>`).join('');
   updateCheckCount();
 }
 function updateCheckCount(){
@@ -963,7 +963,7 @@ function getAdminFiltered(){
   return storage.filter(e=>{
     if(ini&&e.fecha<ini)return false;
     if(fin&&e.fecha>fin)return false;
-    if(sel.length&&!sel.includes(e.nombre))return false;
+    if(!sel.includes(e.nombre))return false;
     return true;
   });
 }
