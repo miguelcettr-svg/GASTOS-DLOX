@@ -129,6 +129,11 @@ body { font-family:var(--font); font-size:16px; background:var(--color-backgroun
 .cal-day.other-month { opacity:0.3; }
 .cal-day.today .cal-day-num { background:var(--accent); color:white; border-radius:50%; width:28px; height:28px; display:flex; align-items:center; justify-content:center; }
 .cal-day.has-entries { background:var(--accent-light); }
+.cal-day.liquidado { background:#D4EFDF; cursor:not-allowed; }
+.cal-day.liquidado .cal-day-num { color:#1E8449; }
+.cal-day.liquidado .cal-day-badge { background:#A9DFBF; color:#1E8449; }
+.liq-log-item { display:flex; align-items:flex-start; gap:10px; padding:12px 14px; background:#EAFAF1; border:1px solid #A9DFBF; border-radius:12px; margin-bottom:8px; font-size:13px; color:#1E8449; }
+.liq-log-item i { font-size:16px; margin-top:1px; flex-shrink:0; }
 .cal-day-num { font-size:13px; font-weight:500; color:var(--color-text-primary); width:28px; height:28px; display:flex; align-items:center; justify-content:center; }
 .cal-day-badge { font-size:10px; font-weight:700; color:var(--accent-dark); background:var(--accent-border); border-radius:8px; padding:1px 5px; margin-top:1px; line-height:1.4; }
 .day-concepto-group { margin-bottom:1rem; }
@@ -292,6 +297,7 @@ body { font-family:var(--font); font-size:16px; background:var(--color-backgroun
     <span id="cal-nombre-label" style="font-size:13px;color:var(--color-text-secondary);"></span>
   </div>
   <div class="cal-grid" id="cal-grid"></div>
+  <div id="liq-log"></div>
 </div>
 
 <div id="screen-driver-day-detail" class="screen">
@@ -299,7 +305,7 @@ body { font-family:var(--font); font-size:16px; background:var(--color-backgroun
   <div class="top-bar" style="margin-bottom:1rem;">
     <span class="top-bar-title" id="day-detail-title"></span>
   </div>
-  <button class="btn-primary" onclick="addGastoFromCalendar()" style="margin-bottom:1rem;"><i class="ti ti-plus"></i> Agregar gasto</button>
+  <button class="btn-primary" id="btn-agregar-gasto-dia" onclick="addGastoFromCalendar()" style="margin-bottom:1rem;"><i class="ti ti-plus"></i> Agregar gasto</button>
   <div id="day-detail-content"></div>
 </div>
 
@@ -419,6 +425,39 @@ body { font-family:var(--font); font-size:16px; background:var(--color-backgroun
     </div>
   </div>
 </div>
+<div class="modal-overlay" id="liquidacion-modal">
+  <div class="modal-box">
+    <h3 style="margin-bottom:4px;">Registrar liquidación</h3>
+    <p id="liquidacion-modal-desc" style="margin-bottom:1.25rem;"></p>
+    <div class="field-group">
+      <label>Desde</label>
+      <input type="date" id="liq-fecha-inicio">
+    </div>
+    <div class="field-group" style="margin-bottom:0;">
+      <label>Hasta</label>
+      <input type="date" id="liq-fecha-fin">
+    </div>
+    <p id="liquidacion-modal-error" style="color:#C0392B;font-size:13px;display:none;margin-top:10px;"></p>
+    <div class="modal-actions" style="margin-top:1.25rem;">
+      <button class="modal-btn-cancel" onclick="closeLiquidacionModal()"><i class="ti ti-x"></i> Cancelar</button>
+      <button class="modal-btn-delete" style="background:var(--accent);" id="liq-confirm-btn" onclick="confirmLiquidacion()"><i class="ti ti-check"></i> Confirmar</button>
+    </div>
+  </div>
+</div>
+<div class="modal-overlay" id="delete-liq-modal">
+  <div class="modal-box">
+    <div style="width:72px;height:72px;background:#FADBD8;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 1.25rem;">
+      <i class="ti ti-trash" style="font-size:32px;color:#C0392B;"></i>
+    </div>
+    <h3 style="text-align:center;margin-bottom:8px;">¿Eliminar liquidación?</h3>
+    <p id="delete-liq-modal-desc" style="text-align:center;"></p>
+    <p style="text-align:center;font-size:13px;color:#C0392B;margin-top:4px;margin-bottom:1.5rem;">Los días de ese rango quedarán libres en el calendario del chofer.</p>
+    <div class="modal-actions">
+      <button class="modal-btn-cancel" onclick="closeDeleteLiqModal()"><i class="ti ti-x"></i> No borrar</button>
+      <button class="modal-btn-delete" onclick="confirmDeleteLiquidacion()"><i class="ti ti-trash"></i> Eliminar</button>
+    </div>
+  </div>
+</div>
 
 <div id="screen-admin" class="screen">
   <div class="top-bar">
@@ -460,6 +499,8 @@ body { font-family:var(--font); font-size:16px; background:var(--color-backgroun
   </div>
   <div id="admin-detail-content"></div>
   <div id="admin-total-bar"></div>
+  <button class="icon-btn excel" onclick="openLiquidacionModal()" style="width:100%;justify-content:center;margin-top:1rem;"><i class="ti ti-calendar-check"></i> Registrar liquidación</button>
+  <div id="admin-liq-list" style="margin-top:1rem;"></div>
 </div>
 
 </div>
@@ -506,6 +547,8 @@ function setRole(role) {
 }
 const _sb=supabase.createClient('https://ooizcqujhujfdwgdhsgy.supabase.co','sb_publishable_25vgUUU_Z103hlAk4YJcIQ_AO9LT2RR');
 let storage=[];
+let liquidaciones=[];
+let currentAdminUser='';
 let currentEntry={},selectedConcepto=null,currentDriver=null;
 
 async function save(entry){
@@ -523,11 +566,12 @@ async function doLogin(){
   const u=document.getElementById('login-user').value.trim(),p=document.getElementById('login-pass').value,err=document.getElementById('login-error');
   if(ADMINS.some(a=>a.user===u&&a.pass===p)){
     err.style.display='none';
+    currentAdminUser=u;
     document.getElementById('login-user').value='';
     document.getElementById('login-pass').value='';
     const btn=document.querySelector('#screen-admin-login .btn-primary');
     btn.disabled=true;btn.textContent='Cargando...';
-    const {data}=await _sb.from('gastos').select('id,nombre,fecha,concepto,concepto_label,concepto_desc,monto,ts').order('fecha',{ascending:false});
+    const {data}=await _sb.from('gastos').select('id,nombre,fecha,concepto,concepto_label,concepto_desc,monto,ts').gte('fecha',getAdminFechaMin()).order('fecha',{ascending:false});
     storage=(data||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:null,ts:r.ts}));
     showScreen('screen-admin');
     buildAdminChecks();
@@ -548,10 +592,16 @@ function checkNombre(){
 }
 function setChoferBtns(ok){const b=document.getElementById('btn-continuar-nombre');b.disabled=!ok;b.style.opacity=ok?'1':'0.4';}
 let _fromCalendar=false,_calendarDate='',_entryOptionsId=null,_currentEditId=null,_fotoUploadPromise=null;
+let _editingLiqId=null,_pendingDeleteLiqId=null;
 function getFechaMin() {
   const d = new Date();
   d.setDate(1);
   d.setDate(d.getDate() - 7);
+  return d.toISOString().split('T')[0];
+}
+function getAdminFechaMin() {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 12);
   return d.toISOString().split('T')[0];
 }
 async function goToCalendar(){
@@ -560,6 +610,8 @@ async function goToCalendar(){
   btn.disabled=true;btn.textContent='Cargando...';
   const {data} = await _sb.from('gastos').select('id,nombre,fecha,concepto,concepto_label,concepto_desc,monto,ts').eq('nombre',currentEntry.nombre).gte('fecha',getFechaMin()).order('fecha',{ascending:false});
   storage=(data||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:null,ts:r.ts}));
+  const {data:liqData} = await _sb.from('liquidaciones').select('id,fecha_inicio,fecha_fin,autorizado_por,ts').eq('chofer',currentEntry.nombre).order('fecha_inicio',{ascending:false});
+  liquidaciones=liqData||[];
   btn.disabled=false;btn.textContent='Continuar';
   document.getElementById('cal-nombre-label').textContent=currentEntry.nombre;
   renderCalendar();
@@ -586,26 +638,41 @@ function renderCalendar(){
       weekDays.push(dd.toISOString().split('T')[0]);
     }
     const weekTotal=weekDays.reduce((s,ds)=>{
+      if(isLiquidado(ds))return s;
       return s+storage.filter(e=>e.nombre===currentEntry.nombre&&e.fecha===ds).reduce((a,e)=>a+e.monto,0);
     },0);
     for(let i=0;i<7;i++){
       const ds=d.toISOString().split('T')[0];
       const count=storage.filter(e=>e.nombre===currentEntry.nombre&&e.fecha===ds).length;
-      const cls=['cal-day',d.getMonth()!==m?'other-month':'',ds===todayStr?'today':'',count>0?'has-entries':''].filter(Boolean).join(' ');
-      html+=`<div class="${cls}" onclick="openDayDetail('${ds}')"><span class="cal-day-num">${d.getDate()}</span>${count>0?`<span class="cal-day-badge">${count}</span>`:''}</div>`;
+      const liq=isLiquidado(ds);
+      const cls=['cal-day',d.getMonth()!==m?'other-month':'',ds===todayStr?'today':'',count>0?'has-entries':'',liq?'liquidado':''].filter(Boolean).join(' ');
+      html+=`<div class="${cls}" onclick="openDayDetail('${ds}')">${liq?'<i class="ti ti-lock" style="font-size:9px;position:absolute;top:3px;right:4px;color:#1E8449;"></i>':''}<span class="cal-day-num">${d.getDate()}</span>${count>0?`<span class="cal-day-badge">${count}</span>`:''}</div>`;
       d.setDate(d.getDate()+1);
     }
     html+=`<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--accent-dark);background:var(--accent-light);border-radius:8px;padding:2px 1px;min-height:44px;">${weekTotal>0?'$'+weekTotal.toFixed(0):'-'}</div>`;
   }
   document.getElementById('cal-grid').innerHTML=html;
+  renderLiqLog();
+}
+function isLiquidado(fecha){return liquidaciones.some(l=>fecha>=l.fecha_inicio&&fecha<=l.fecha_fin);}
+function renderLiqLog(){
+  const cont=document.getElementById('liq-log');
+  if(!liquidaciones.length){cont.innerHTML='';return;}
+  cont.innerHTML=liquidaciones.map(l=>{
+    const ini=new Date(l.fecha_inicio+'T12:00:00').toLocaleDateString('es-MX',{day:'2-digit',month:'short'});
+    const fin=new Date(l.fecha_fin+'T12:00:00').toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'});
+    return `<div class="liq-log-item"><i class="ti ti-lock"></i><span>Gastos del ${ini} al ${fin} en proceso de pago${l.autorizado_por?` · Autorizó: ${l.autorizado_por}`:''}</span></div>`;
+  }).join('');
 }
 function openDayDetail(ds){
   _calendarDate=ds;_currentEditId=null;
   const hasEntries=storage.some(e=>e.nombre===currentEntry.nombre&&e.fecha===ds);
+  if(!hasEntries&&isLiquidado(ds))return;
   if(!hasEntries){addGastoFromCalendar();return;}
   const d=new Date(ds+'T12:00:00');
   const lbl=d.toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'});
   document.getElementById('day-detail-title').textContent=lbl.charAt(0).toUpperCase()+lbl.slice(1);
+  document.getElementById('btn-agregar-gasto-dia').style.display=isLiquidado(ds)?'none':'';
   renderDayDetail(ds);
   showScreen('screen-driver-day-detail');
 }
@@ -613,9 +680,10 @@ function renderDayDetail(ds){
   const entries=storage.filter(e=>e.nombre===currentEntry.nombre&&e.fecha===ds);
   const cont=document.getElementById('day-detail-content');
   if(!entries.length){cont.innerHTML=`<div class="empty-state"><i class="ti ti-receipt-off"></i><p>Sin gastos este día</p></div>`;return;}
+  const liq=isLiquidado(ds);
   const byC={};
   entries.forEach(e=>{if(!byC[e.concepto])byC[e.concepto]={label:e.conceptoLabel,entries:[]};byC[e.concepto].entries.push(e);});
-  cont.innerHTML=Object.values(byC).map(g=>`<div class="day-concepto-group"><div class="day-concepto-label">${g.label}</div>${g.entries.map(e=>`<div class="day-entry-row" onclick="openEntryOptions(${e.id})"><div class="day-entry-info"><div class="day-entry-desc">${e.conceptoDesc||'Sin descripción'}</div>${e.lugarManual||e.ubicacionTexto?`<div class="day-entry-meta">${e.lugarManual||e.ubicacionTexto}</div>`:''}</div><div class="day-entry-monto">$${e.monto.toFixed(2)}</div><i class="ti ti-chevron-right" style="font-size:16px;color:var(--color-text-secondary);"></i></div>`).join('')}</div>`).join('');
+  cont.innerHTML=Object.values(byC).map(g=>`<div class="day-concepto-group"><div class="day-concepto-label">${g.label}</div>${g.entries.map(e=>`<div class="day-entry-row" ${liq?'':`onclick="openEntryOptions(${e.id})"`}><div class="day-entry-info"><div class="day-entry-desc">${e.conceptoDesc||'Sin descripción'}</div>${e.lugarManual||e.ubicacionTexto?`<div class="day-entry-meta">${e.lugarManual||e.ubicacionTexto}</div>`:''}</div><div class="day-entry-monto">$${e.monto.toFixed(2)}</div>${liq?'<i class="ti ti-lock" style="font-size:14px;color:#1E8449;"></i>':'<i class="ti ti-chevron-right" style="font-size:16px;color:var(--color-text-secondary);"></i>'}</div>`).join('')}</div>`).join('');
 }
 function addGastoFromCalendar(){
   _fromCalendar=true;_currentEditId=null;
@@ -913,12 +981,79 @@ function renderAdminDrivers(){
   if(!Object.keys(drivers).length){list.innerHTML=`<div class="empty-state"><i class="ti ti-users" aria-hidden="true"></i><p>Sin resultados con ese filtro</p></div>`;return;}
   list.innerHTML=Object.entries(drivers).map(([name,d])=>{const initials=name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);return`<div class="driver-item" onclick="openDriverDetail('${name}')"><div class="driver-avatar">${initials}</div><div class="driver-info"><div class="driver-name">${name}</div><div class="driver-count">${d.count} registro(s)</div></div><div style="font-size:17px;font-weight:600;color:var(--accent);margin-right:8px;">$${d.total.toFixed(0)}</div><i class="ti ti-chevron-right" style="font-size:20px;color:var(--color-text-secondary);" aria-hidden="true"></i></div>`;}).join('');
 }
+function openLiquidacionModal(){
+  _editingLiqId=null;
+  document.querySelector('#liquidacion-modal h3').textContent='Registrar liquidación';
+  document.getElementById('liq-fecha-inicio').value='';
+  document.getElementById('liq-fecha-fin').value='';
+  document.getElementById('liquidacion-modal-error').style.display='none';
+  document.getElementById('liquidacion-modal-desc').textContent=`Chofer: ${currentDriver}`;
+  document.getElementById('liquidacion-modal').classList.add('open');
+}
+function editLiquidacionModal(id){
+  const l=liquidaciones.find(x=>x.id===id);
+  if(!l)return;
+  _editingLiqId=id;
+  document.querySelector('#liquidacion-modal h3').textContent='Editar liquidación';
+  document.getElementById('liq-fecha-inicio').value=l.fecha_inicio;
+  document.getElementById('liq-fecha-fin').value=l.fecha_fin;
+  document.getElementById('liquidacion-modal-error').style.display='none';
+  document.getElementById('liquidacion-modal-desc').textContent=`Chofer: ${currentDriver}`;
+  document.getElementById('liquidacion-modal').classList.add('open');
+}
+function closeLiquidacionModal(){document.getElementById('liquidacion-modal').classList.remove('open');_editingLiqId=null;}
+async function confirmLiquidacion(){
+  const ini=document.getElementById('liq-fecha-inicio').value;
+  const fin=document.getElementById('liq-fecha-fin').value;
+  const errEl=document.getElementById('liquidacion-modal-error');
+  if(!ini||!fin||fin<ini){errEl.textContent='Selecciona un rango de fechas válido.';errEl.style.display='block';return;}
+  let error;
+  if(_editingLiqId){
+    ({error}=await _sb.from('liquidaciones').update({fecha_inicio:ini,fecha_fin:fin}).eq('id',_editingLiqId));
+  } else {
+    ({error}=await _sb.from('liquidaciones').insert({chofer:currentDriver,fecha_inicio:ini,fecha_fin:fin,autorizado_por:currentAdminUser}));
+  }
+  if(error){errEl.textContent='Error al guardar: '+error.message;errEl.style.display='block';return;}
+  closeLiquidacionModal();
+  loadLiquidacionesAdmin(currentDriver);
+}
+function openDeleteLiqModal(id){
+  const l=liquidaciones.find(x=>x.id===id);
+  if(!l)return;
+  _pendingDeleteLiqId=id;
+  const ini=new Date(l.fecha_inicio+'T12:00:00').toLocaleDateString('es-MX',{day:'2-digit',month:'short'});
+  const fin=new Date(l.fecha_fin+'T12:00:00').toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'});
+  document.getElementById('delete-liq-modal-desc').textContent=`${ini} – ${fin}`;
+  document.getElementById('delete-liq-modal').classList.add('open');
+}
+function closeDeleteLiqModal(){document.getElementById('delete-liq-modal').classList.remove('open');_pendingDeleteLiqId=null;}
+async function confirmDeleteLiquidacion(){
+  await _sb.from('liquidaciones').delete().eq('id',_pendingDeleteLiqId);
+  closeDeleteLiqModal();
+  loadLiquidacionesAdmin(currentDriver);
+}
 function openDriverDetail(nombre){
   currentDriver=nombre;document.getElementById('admin-detail-title').textContent=nombre;
   const meses=[...new Set(storage.filter(e=>e.nombre===nombre).map(e=>e.fecha.slice(0,7)))].sort();
   const sel=document.getElementById('filter-mes');
   sel.innerHTML='<option value="">Todos los meses</option>'+meses.map(m=>{const[y,mo]=m.split('-');return`<option value="${m}">${new Date(+y,+mo-1).toLocaleDateString('es-MX',{month:'long',year:'numeric'})}</option>`;}).join('');
   document.getElementById('filter-status').value='';renderAdminDetail();showScreen('screen-admin-detail');
+  loadLiquidacionesAdmin(nombre);
+}
+async function loadLiquidacionesAdmin(nombre){
+  const {data}=await _sb.from('liquidaciones').select('id,fecha_inicio,fecha_fin,autorizado_por').eq('chofer',nombre).order('fecha_inicio',{ascending:false});
+  liquidaciones=data||[];
+  renderLiquidacionesList();
+}
+function renderLiquidacionesList(){
+  const cont=document.getElementById('admin-liq-list');
+  if(!cont)return;
+  if(!liquidaciones.length){cont.innerHTML='';return;}
+  cont.innerHTML=`<div style="font-size:11px;font-weight:600;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Liquidaciones registradas</div>`+liquidaciones.map(l=>{
+    const ini=new Date(l.fecha_inicio+'T12:00:00').toLocaleDateString('es-MX',{day:'2-digit',month:'short'});
+    const fin=new Date(l.fecha_fin+'T12:00:00').toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'});
+    return `<div class="liq-log-item" style="align-items:center;"><i class="ti ti-lock"></i><div style="flex:1;min-width:0;">${ini} – ${fin}${l.autorizado_por?`<br>Autorizó: ${l.autorizado_por}`:''}</div><button aria-label="Editar" onclick="editLiquidacionModal(${l.id})" style="background:none;border:none;color:#1E8449;font-size:18px;padding:6px;cursor:pointer;"><i class="ti ti-edit"></i></button><button aria-label="Eliminar" onclick="openDeleteLiqModal(${l.id})" style="background:none;border:none;color:#A32D2D;font-size:18px;padding:6px;cursor:pointer;"><i class="ti ti-trash"></i></button></div>`;
+  }).join('');
 }
 function renderAdminDetail(){
   const mes=document.getElementById('filter-mes').value,status=document.getElementById('filter-status').value;
