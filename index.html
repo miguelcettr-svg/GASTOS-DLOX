@@ -548,6 +548,7 @@ function setRole(role) {
 const _sb=supabase.createClient('https://ooizcqujhujfdwgdhsgy.supabase.co','sb_publishable_25vgUUU_Z103hlAk4YJcIQ_AO9LT2RR');
 let storage=[];
 let liquidaciones=[];
+let allLiquidaciones={};// {chofer:[{fecha_inicio,fecha_fin},...]}
 let currentAdminUser='';
 let currentEntry={},selectedConcepto=null,currentDriver=null;
 
@@ -573,6 +574,9 @@ async function doLogin(){
     btn.disabled=true;btn.textContent='Cargando...';
     const {data}=await _sb.from('gastos').select('id,nombre,fecha,concepto,concepto_label,concepto_desc,monto,ts').gte('fecha',getAdminFechaMin()).order('fecha',{ascending:false});
     storage=(data||[]).map(r=>({id:r.id,nombre:r.nombre,fecha:r.fecha,concepto:r.concepto,conceptoLabel:r.concepto_label,conceptoDesc:r.concepto_desc,monto:Number(r.monto),foto:null,ts:r.ts}));
+    const {data:liqAll}=await _sb.from('liquidaciones').select('chofer,fecha_inicio,fecha_fin').gte('fecha_inicio',getAdminFechaMin());
+    allLiquidaciones={};
+    (liqAll||[]).forEach(l=>{if(!allLiquidaciones[l.chofer])allLiquidaciones[l.chofer]=[];allLiquidaciones[l.chofer].push({fecha_inicio:l.fecha_inicio,fecha_fin:l.fecha_fin});});
     showScreen('screen-admin');
     buildAdminChecks();
     renderAdminDrivers();
@@ -976,10 +980,21 @@ function renderAdminDrivers(){
   if(!document.getElementById('admin-chofer-checks').children.length)buildAdminChecks();
   const entries=getAdminFiltered();
   const drivers={};
-  entries.forEach(e=>{if(!drivers[e.nombre])drivers[e.nombre]={count:0,total:0};drivers[e.nombre].count++;drivers[e.nombre].total+=e.monto;});
+  entries.forEach(e=>{
+    if(!drivers[e.nombre])drivers[e.nombre]={count:0,total:0,liquidado:0};
+    drivers[e.nombre].count++;
+    drivers[e.nombre].total+=e.monto;
+    const liqs=allLiquidaciones[e.nombre]||[];
+    if(liqs.some(l=>e.fecha>=l.fecha_inicio&&e.fecha<=l.fecha_fin))drivers[e.nombre].liquidado+=e.monto;
+  });
   const list=document.getElementById('admin-driver-list');
   if(!Object.keys(drivers).length){list.innerHTML=`<div class="empty-state"><i class="ti ti-users" aria-hidden="true"></i><p>Sin resultados con ese filtro</p></div>`;return;}
-  list.innerHTML=Object.entries(drivers).map(([name,d])=>{const initials=name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);return`<div class="driver-item" onclick="openDriverDetail('${name}')"><div class="driver-avatar">${initials}</div><div class="driver-info"><div class="driver-name">${name}</div><div class="driver-count">${d.count} registro(s)</div></div><div style="font-size:17px;font-weight:600;color:var(--accent);margin-right:8px;">$${d.total.toFixed(0)}</div><i class="ti ti-chevron-right" style="font-size:20px;color:var(--color-text-secondary);" aria-hidden="true"></i></div>`;}).join('');
+  list.innerHTML=Object.entries(drivers).map(([name,d])=>{
+    const initials=name.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
+    const pendiente=d.total-d.liquidado;
+    const subline=d.liquidado>0?`<div class="driver-count">${d.count} registro(s) · <span style="color:#1E8449;">-$${d.liquidado.toFixed(0)} liq.</span></div>`:`<div class="driver-count">${d.count} registro(s)</div>`;
+    return`<div class="driver-item" onclick="openDriverDetail('${name}')"><div class="driver-avatar">${initials}</div><div class="driver-info"><div class="driver-name">${name}</div>${subline}</div><div style="font-size:17px;font-weight:600;color:var(--accent);margin-right:8px;">$${pendiente.toFixed(0)}</div><i class="ti ti-chevron-right" style="font-size:20px;color:var(--color-text-secondary);" aria-hidden="true"></i></div>`;
+  }).join('');
 }
 function openLiquidacionModal(){
   _editingLiqId=null;
@@ -1043,7 +1058,16 @@ function openDriverDetail(nombre){
 async function loadLiquidacionesAdmin(nombre){
   const {data}=await _sb.from('liquidaciones').select('id,fecha_inicio,fecha_fin,autorizado_por').eq('chofer',nombre).order('fecha_inicio',{ascending:false});
   liquidaciones=data||[];
+  allLiquidaciones[nombre]=liquidaciones.map(l=>({fecha_inicio:l.fecha_inicio,fecha_fin:l.fecha_fin}));
   renderLiquidacionesList();
+}
+function toggleLiqDetalle(id){
+  const el=document.getElementById('liq-detalle-'+id);
+  if(!el)return;
+  const open=el.style.display!=='none';
+  el.style.display=open?'none':'block';
+  const btn=document.getElementById('liq-ojo-'+id);
+  if(btn)btn.style.color=open?'#1E8449':'#0F2847';
 }
 function renderLiquidacionesList(){
   const cont=document.getElementById('admin-liq-list');
@@ -1052,7 +1076,23 @@ function renderLiquidacionesList(){
   cont.innerHTML=`<div style="font-size:11px;font-weight:600;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Liquidaciones registradas</div>`+liquidaciones.map(l=>{
     const ini=new Date(l.fecha_inicio+'T12:00:00').toLocaleDateString('es-MX',{day:'2-digit',month:'short'});
     const fin=new Date(l.fecha_fin+'T12:00:00').toLocaleDateString('es-MX',{day:'2-digit',month:'short',year:'numeric'});
-    return `<div class="liq-log-item" style="align-items:center;"><i class="ti ti-lock"></i><div style="flex:1;min-width:0;">${ini} – ${fin}${l.autorizado_por?`<br>Autorizó: ${l.autorizado_por}`:''}</div><button aria-label="Editar" onclick="editLiquidacionModal(${l.id})" style="background:none;border:none;color:#1E8449;font-size:18px;padding:6px;cursor:pointer;"><i class="ti ti-edit"></i></button><button aria-label="Eliminar" onclick="openDeleteLiqModal(${l.id})" style="background:none;border:none;color:#A32D2D;font-size:18px;padding:6px;cursor:pointer;"><i class="ti ti-trash"></i></button></div>`;
+    const gastosLiq=storage.filter(e=>e.nombre===currentDriver&&e.fecha>=l.fecha_inicio&&e.fecha<=l.fecha_fin).sort((a,b)=>b.fecha.localeCompare(a.fecha));
+    const totalLiq=gastosLiq.reduce((s,e)=>s+e.monto,0);
+    const detalleRows=gastosLiq.length?gastosLiq.map(e=>{
+      const fd=new Date(e.fecha+'T12:00:00').toLocaleDateString('es-MX',{day:'2-digit',month:'short'});
+      return`<div style="display:flex;justify-content:space-between;align-items:center;padding:7px 10px;border-bottom:0.5px solid #D5F5E3;font-size:13px;"><span style="color:#1E8449;">${fd} · ${e.conceptoLabel}${e.conceptoDesc?' — '+e.conceptoDesc:''}</span><span style="font-weight:600;color:#1E8449;white-space:nowrap;margin-left:8px;">$${e.monto.toFixed(2)}</span></div>`;
+    }).join('')+`<div style="display:flex;justify-content:space-between;padding:8px 10px;font-size:13px;font-weight:700;color:#1E8449;background:#C8F0D8;border-radius:0 0 10px 10px;"><span>TOTAL LIQUIDADO</span><span>$${totalLiq.toFixed(2)}</span></div>`
+    :`<div style="padding:10px;font-size:13px;color:#1E8449;text-align:center;">Sin gastos en este periodo</div>`;
+    return `<div class="liq-log-item" style="align-items:center;flex-direction:column;padding:0;overflow:hidden;">
+      <div style="display:flex;align-items:center;width:100%;padding:12px 14px;gap:10px;">
+        <i class="ti ti-lock" style="color:#1E8449;font-size:16px;flex-shrink:0;"></i>
+        <div style="flex:1;min-width:0;font-size:13px;color:#1E8449;">${ini} – ${fin}${l.autorizado_por?`<br>Autorizó: ${l.autorizado_por}`:''}</div>
+        <button id="liq-ojo-${l.id}" aria-label="Ver gastos" onclick="toggleLiqDetalle(${l.id})" style="background:none;border:none;color:#1E8449;font-size:18px;padding:6px;cursor:pointer;"><i class="ti ti-eye"></i></button>
+        <button aria-label="Editar" onclick="editLiquidacionModal(${l.id})" style="background:none;border:none;color:#1E8449;font-size:18px;padding:6px;cursor:pointer;"><i class="ti ti-edit"></i></button>
+        <button aria-label="Eliminar" onclick="openDeleteLiqModal(${l.id})" style="background:none;border:none;color:#A32D2D;font-size:18px;padding:6px;cursor:pointer;"><i class="ti ti-trash"></i></button>
+      </div>
+      <div id="liq-detalle-${l.id}" style="display:none;width:100%;border-top:1px solid #A9DFBF;">${detalleRows}</div>
+    </div>`;
   }).join('');
 }
 function renderAdminDetail(){
@@ -1060,6 +1100,8 @@ function renderAdminDetail(){
   let entries=storage.filter(e=>e.nombre===currentDriver);
   if(mes)entries=entries.filter(e=>e.fecha.startsWith(mes));
   if(status)entries=entries.filter(e=>e.status===status);
+  // Excluir gastos dentro de periodos liquidados
+  entries=entries.filter(e=>!liquidaciones.some(l=>e.fecha>=l.fecha_inicio&&e.fecha<=l.fecha_fin));
   entries.sort((a,b)=>b.fecha.localeCompare(a.fecha));
   const content=document.getElementById('admin-detail-content');
   if(!entries.length){content.innerHTML=`<div class="empty-state"><i class="ti ti-file-off" aria-hidden="true"></i><p>Sin registros con ese filtro</p></div>`;document.getElementById('admin-total-bar').innerHTML='';return;}
@@ -1162,8 +1204,13 @@ async function patchXlsxCheckboxes(xlsxB64){
   return await zip.generateAsync({type:'base64',compression:'DEFLATE'});
 }
 async function exportZip(){
-  const entries=getAdminFiltered();
-  if(!entries.length){alert('No hay registros con ese filtro');return;}
+  let entries=getAdminFiltered();
+  // Excluir gastos en periodos liquidados
+  entries=entries.filter(e=>{
+    const liqs=allLiquidaciones[e.nombre]||[];
+    return!liqs.some(l=>e.fecha>=l.fecha_inicio&&e.fecha<=l.fecha_fin);
+  });
+  if(!entries.length){alert('No hay registros pendientes (sin liquidar) con ese filtro');return;}
   const btn=document.querySelector('[onclick="exportZip()"]');
   if(btn){btn.textContent='Cargando fotos...';btn.disabled=true;}
   // Cargar fotos on-demand solo al exportar
