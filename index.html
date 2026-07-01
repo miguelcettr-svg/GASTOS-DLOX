@@ -600,7 +600,7 @@ let _editingLiqId=null,_pendingDeleteLiqId=null;
 function getFechaMin() {
   const d = new Date();
   d.setDate(1);
-  d.setDate(d.getDate() - 7);
+  d.setDate(d.getDate() - 21);
   return d.toISOString().split('T')[0];
 }
 function getAdminFechaMin() {
@@ -625,7 +625,7 @@ function renderCalendar(){
   const now=new Date();const y=now.getFullYear();const m=now.getMonth();
   const lastPrev=new Date(y,m,0);
   const dow=lastPrev.getDay()||7;
-  const start=new Date(lastPrev);start.setDate(lastPrev.getDate()-dow+1);
+  const start=new Date(lastPrev);start.setDate(lastPrev.getDate()-dow+1-14);
   const lastCurr=new Date(y,m+1,0);
   const dow2=lastCurr.getDay()||7;
   const end=new Date(lastCurr);end.setDate(lastCurr.getDate()+(7-dow2));
