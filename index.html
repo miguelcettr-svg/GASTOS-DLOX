@@ -1118,15 +1118,16 @@ function renderAdminDetail(){
 function getExcelLugar(e){return e.ubicacionTexto||e.lugarManual||'';}
 function getExcelGPS(e){if(e.ubicacionTexto)return'';if(e.lat)return`${e.lat}, ${e.lng}`;return'';}
 function normStr(s){return s.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase().replace(/[^a-z0-9]/g,'');}
-function fotoFilename(entry,idx){
+function fotoFilename(entry){
   const parts=entry.nombre.trim().split(/\s+/);
   const code=normStr((parts[0]?parts[0][0]:'')+( parts[1]||''));
-  return `${code}_${idx}.jpg`;
+  return `${code}_${entry.id}.jpg`;
 }
 function buildRows(entries,withFoto,fotoMap={}){
   return entries.map((e,i)=>{
     const row={'Revisado':false,'Chofer':e.nombre,'Fecha':new Date(e.fecha+'T12:00:00').toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit',year:'numeric'}),'Concepto':e.conceptoLabel,'Descripción':e.conceptoDesc||'','Monto ($)':e.monto,'Registrado':new Date(e.ts).toLocaleString('es-MX')};
-    if(withFoto){const hasFoto=fotoMap[e.id]||(e.foto&&e.foto.startsWith('http'));row['Foto']=hasFoto?fotoFilename(e,i+1):'';}
+    if(withFoto){const hasFoto=fotoMap[e.id]||(e.foto&&e.foto.startsWith('http'));
+    row['Foto']=hasFoto?fotoFilename(e):'';}
     return row;
   });
 }
@@ -1259,7 +1260,7 @@ async function exportZip(){
       const res=await fetch(url);
       const blob=await res.blob();
       const arr=await blob.arrayBuffer();
-      fotos.file(fotoFilename(e,i+1),arr);
+      fotos.file(fotoFilename(e),arr);
     }catch(err){console.warn('foto no disponible:',e.id);}
   });
   await Promise.all(fotoPromises);
