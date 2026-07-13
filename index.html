@@ -595,7 +595,7 @@ function checkNombre(){
   setChoferBtns(ok);
 }
 function setChoferBtns(ok){const b=document.getElementById('btn-continuar-nombre');b.disabled=!ok;b.style.opacity=ok?'1':'0.4';}
-let _fromCalendar=false,_calendarDate='',_entryOptionsId=null,_currentEditId=null,_fotoUploadPromise=null;
+let _fromCalendar=false,_calendarDate='',_entryOptionsId=null,_currentEditId=null,_fotoUploadPromise=null,_fotoToken=0;
 let _editingLiqId=null,_pendingDeleteLiqId=null;
 function getFechaMin() {
   const d = new Date();
@@ -793,8 +793,9 @@ function previewFoto(input){
   const file=input.files[0];if(!file)return;
   document.getElementById('foto-preview').style.display='none';
   document.getElementById('foto-status').style.display='block';
-  _setFotoEstado('procesando','Procesando...');
+_setFotoEstado('procesando','Procesando...');
   currentEntry.foto=null;
+  const myToken=++_fotoToken;
   _fotoUploadPromise=new Promise((resolve,reject)=>{
     const img=new Image();
     const blobUrl=URL.createObjectURL(file);
@@ -816,10 +817,12 @@ function previewFoto(input){
           const {error}=await _sb.storage.from('fotos-gastos').upload(path,blob,{contentType:'image/jpeg',cacheControl:'2592000'});
           if(error)throw error;
           const {data:{publicUrl}}=_sb.storage.from('fotos-gastos').getPublicUrl(path);
+          if(myToken!==_fotoToken)return resolve(publicUrl);
           currentEntry.foto=publicUrl;
           _setFotoEstado('lista',file.name||'Foto adjunta');
           resolve(publicUrl);
         }catch(e){
+          if(myToken!==_fotoToken)return reject(e);
           currentEntry.foto=null;
           _setFotoEstado('error','Error al subir foto');
           reject(e);
@@ -833,6 +836,7 @@ function previewFoto(input){
 function resetFoto(){
   currentEntry.foto=null;
   _fotoUploadPromise=null;
+  _fotoToken++;
   document.querySelectorAll('#screen-driver-concepto input[type=file]').forEach(i=>i.value='');
   document.getElementById('foto-preview').style.display='none';
   document.getElementById('foto-preview').src='';
@@ -1060,6 +1064,8 @@ async function loadLiquidacionesAdmin(nombre){
   liquidaciones=data||[];
   allLiquidaciones[nombre]=liquidaciones.map(l=>({fecha_inicio:l.fecha_inicio,fecha_fin:l.fecha_fin}));
   renderLiquidacionesList();
+  renderAdminDetail();
+
 }
 function toggleLiqDetalle(id){
   const el=document.getElementById('liq-detalle-'+id);
@@ -1124,6 +1130,13 @@ function buildRows(entries,withFoto,fotoMap={}){
     return row;
   });
 }
+  function sheetNameFor(nombre,used){
+  let base=nombre.replace(/[:\\\/?*\[\]]/g,'').trim().slice(0,31)||'Chofer';
+  let name=base,n=2;
+  while(used.has(name)){name=(base.slice(0,28)+'_'+n).slice(0,31);n++;}
+  used.add(name);
+  return name;
+}
 function applyTableStyles(ws,checkCol){
   const range=XLSX.utils.decode_range(ws['!ref']);
   const HDR={font:{bold:true,color:{rgb:'FFFFFF'},sz:11},fill:{fgColor:{rgb:'F47920'}},border:{top:{style:'thin',color:{rgb:'CCCCCC'}},bottom:{style:'thin',color:{rgb:'CCCCCC'}},left:{style:'thin',color:{rgb:'CCCCCC'}},right:{style:'thin',color:{rgb:'CCCCCC'}}},alignment:{horizontal:'center',vertical:'center',wrapText:true}};
@@ -1144,12 +1157,15 @@ function applyTableStyles(ws,checkCol){
   return ws;
 }
 async function patchXlsxCheckboxes(xlsxB64){
-  const zip=await JSZip.loadAsync(xlsxB64,{base64:true});
-  // 1. Leer sheet para encontrar style IDs de columna A (boolean cells)
-  const sheetXml=await zip.file('xl/worksheets/sheet1.xml').async('string');
+const zip=await JSZip.loadAsync(xlsxB64,{base64:true});
+  // 1. Leer todas las hojas para encontrar style IDs de columna A (boolean cells)
   const cbStyles=new Set();
-  let m;const re=/<c r="A\d+" s="(\d+)"[^>]*t="b"/g;
-  while((m=re.exec(sheetXml))!==null)cbStyles.add(Number(m[1]));
+  const sheetFiles=Object.keys(zip.files).filter(f=>/^xl\/worksheets\/sheet\d+\.xml$/.test(f));
+  for(const f of sheetFiles){
+    const sheetXml=await zip.file(f).async('string');
+    let m;const re=/<c r="A\d+" s="(\d+)"[^>]*t="b"/g;
+    while((m=re.exec(sheetXml))!==null)cbStyles.add(Number(m[1]));
+  }
   // 2. Patch styles.xml - agregar extLst a esos XF entries
   let styles=await zip.file('xl/styles.xml').async('string');
   if(!styles.includes('xmlns:xfpb='))
@@ -1221,10 +1237,16 @@ async function exportZip(){
   if(btn)btn.textContent='Generando ZIP...';
   const sorted=[...entries].sort((a,b)=>a.nombre.localeCompare(b.nombre)||a.fecha.localeCompare(b.fecha));
   const zip=new JSZip();const fecha=new Date().toISOString().slice(0,10);
-  let ws=XLSX.utils.json_to_sheet(buildRows(sorted,true,fotoMap));
-  ws['!cols']=[{wch:10},{wch:20},{wch:12},{wch:18},{wch:22},{wch:10},{wch:20},{wch:20}];
-  ws=applyTableStyles(ws,0);
-  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Gastos');
+  const porChofer={};
+  sorted.forEach(e=>{(porChofer[e.nombre]=porChofer[e.nombre]||[]).push(e);});
+  const wb=XLSX.utils.book_new();
+  const usedSheetNames=new Set();
+  Object.keys(porChofer).forEach(nombre=>{
+    let ws=XLSX.utils.json_to_sheet(buildRows(porChofer[nombre],true,fotoMap));
+    ws['!cols']=[{wch:10},{wch:20},{wch:12},{wch:18},{wch:22},{wch:10},{wch:20},{wch:20}];
+    ws=applyTableStyles(ws,0);
+    XLSX.utils.book_append_sheet(wb,ws,sheetNameFor(nombre,usedSheetNames));
+  });
   let xlsxB64=XLSX.write(wb,{bookType:'xlsx',type:'base64'});
   xlsxB64=await patchXlsxCheckboxes(xlsxB64);
   zip.file(`gastos_${fecha}.xlsx`,xlsxB64,{base64:true});
